@@ -109,7 +109,10 @@ page = st.sidebar.radio("Select Page", [
     "💼 Trade Execution",
     "📈 Live Market Data",
     "🔍 Query Database",
-    "📋 Reports"
+    "📋 Reports",
+    "⚠️ Risk Management",  # NEW
+    "📅 Contract Expiry",   # NEW
+    "🏭 Sector Analysis"    # NEW
 ])
 
 # ============================================
@@ -557,6 +560,338 @@ elif page == "📋 Reports":
                 height=400
             )
             st.plotly_chart(fig, use_container_width=True)
+
+    
+
+
+# Add these new pages at the end of the file (before footer)
+
+# ============================================
+# PAGE 6: RISK MANAGEMENT
+# ============================================
+elif page == "⚠️ Risk Management":
+    st.header("Risk Management & VaR Analysis")
+    
+    st.markdown("""
+    ### Value at Risk (VaR)
+    VaR measures the potential loss in portfolio value over a specific time period at a given confidence level.
+    """)
+    
+    # VaR Calculator
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        st.subheader("VaR Settings")
+        confidence = st.slider("Confidence Level (%)", min_value=90.0, max_value=99.9, value=95.0, step=0.1)
+        
+        if st.button("Calculate Portfolio VaR", type="primary"):
+            st.session_state['confidence'] = confidence
+            st.success(f"Calculating VaR at {confidence}% confidence level")
+    
+    with col2:
+        st.subheader("Portfolio VaR Analysis")
+        if 'confidence' in st.session_state:
+            var_data = call_procedure('calculate_portfolio_var', (st.session_state['confidence'],))
+            if var_data:
+                df_var = pd.DataFrame(var_data)
+                st.dataframe(df_var, use_container_width=True, hide_index=True)
+                
+                # VaR Visualization
+                fig = go.Figure()
+                fig.add_trace(go.Bar(
+                    x=df_var['party_name'],
+                    y=df_var['value_at_risk'],
+                    marker_color=df_var['risk_score'],
+                    marker_colorscale='RdYlGn_r',
+                    text=df_var['credit_rating'],
+                    textposition='outside'
+                ))
+                fig.update_layout(
+                    title=f"Value at Risk by Counterparty ({st.session_state['confidence']}% Confidence)",
+                    xaxis_title="Counterparty",
+                    yaxis_title="VaR ($)",
+                    height=400
+                )
+                st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Click 'Calculate Portfolio VaR' to generate analysis")
+    
+    st.markdown("---")
+    
+    # Risk Metrics
+    st.subheader("Key Risk Metrics")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        # Total system exposure
+        total_exp = execute_query("SELECT SUM(ABS(net_notional_position)) as total FROM Portfolio_Position")
+        st.metric("Total System Exposure", f"${total_exp[0]['total']:,.0f}" if total_exp and total_exp[0]['total'] else "$0")
+    
+    with col2:
+        # Number of at-risk positions
+        at_risk = execute_query("""
+            SELECT COUNT(DISTINCT pp.position_id) as count
+            FROM Portfolio_Position pp
+            JOIN Counterparty c ON pp.party_id = c.party_id
+            WHERE c.credit_rating IN ('BBB', 'BBB-', 'BB+', 'BB', 'BB-')
+        """)
+        st.metric("At-Risk Positions", at_risk[0]['count'] if at_risk else 0)
+    
+    with col3:
+        # Concentration risk
+        max_exposure = execute_query("""
+            SELECT MAX(total_exp) as max_exp
+            FROM (
+                SELECT party_id, SUM(ABS(net_notional_position)) as total_exp
+                FROM Portfolio_Position
+                GROUP BY party_id
+            ) AS exposure_by_party
+        """)
+        st.metric("Max Single Exposure", f"${max_exposure[0]['max_exp']:,.0f}" if max_exposure and max_exposure[0]['max_exp'] else "$0")
+    
+    with col4:
+        # Credit events risk
+        high_spread = execute_query("""
+            SELECT COUNT(DISTINCT ref_entity_id) as count
+            FROM Credit_Curve
+            WHERE spread_bps > 300
+        """)
+        st.metric("High Spread Entities", high_spread[0]['count'] if high_spread else 0)
+
+# ============================================
+# PAGE 7: CONTRACT EXPIRY TRACKING
+# ============================================
+elif page == "📅 Contract Expiry":
+    st.header("Contract Expiry Tracking")
+    
+    st.markdown("""
+    ### Expiring Contracts Dashboard
+    Monitor CDS contracts approaching maturity to ensure timely rollover or settlement.
+    """)
+    
+    # Expiry threshold selector
+    col1, col2 = st.columns([1, 3])
+    
+    with col1:
+        st.subheader("Filter Settings")
+        
+        # Time period options
+        time_options = [
+            ("30 days", 30),
+            ("60 days", 60),
+            ("90 days", 90),
+            ("180 days (6 months)", 180),
+            ("365 days (1 year)", 365),
+            ("730 days (2 years)", 730),
+            ("2190 days (6 years)", 2190)
+        ]
+        
+        selected_option = st.selectbox(
+            "Show contracts expiring within:",
+            options=time_options,
+            format_func=lambda x: x[0],
+            index=2
+        )
+        
+        days_threshold = selected_option[1]
+        
+        st.info(f"Searching for contracts expiring in the next **{days_threshold}** days ({days_threshold/365:.1f} years)")
+        
+        if st.button("Search Expiring Contracts", type="primary"):
+            st.session_state['days_threshold'] = days_threshold
+            st.session_state['threshold_label'] = selected_option[0]
+    
+    with col2:
+        if 'days_threshold' in st.session_state:
+            st.subheader(f"Contracts Expiring in Next {st.session_state['threshold_label']}")
+            
+            expiring = call_procedure('contracts_expiring_soon', (st.session_state['days_threshold'],))
+            
+            if expiring:
+                df_expiring = pd.DataFrame(expiring)
+                
+                # Add years column for better readability
+                df_expiring['years_remaining'] = (df_expiring['days_remaining'] / 365).round(2)
+                
+                st.dataframe(df_expiring, use_container_width=True, hide_index=True)
+                
+                # Timeline visualization
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=df_expiring['days_remaining'],
+                    y=df_expiring['notional_amount'],
+                    mode='markers',
+                    marker=dict(
+                        size=df_expiring['trade_count']*5 + 10,
+                        color=df_expiring['days_remaining'],
+                        colorscale='RdYlGn',
+                        showscale=True,
+                        colorbar=dict(title="Days Remaining")
+                    ),
+                    text=df_expiring['entity_name'],
+                    hovertemplate='<b>%{text}</b><br>Days: %{x}<br>Years: ' + 
+                                  (df_expiring['days_remaining']/365).round(2).astype(str) +
+                                  '<br>Notional: $%{y:,.0f}<extra></extra>'
+                ))
+                fig.update_layout(
+                    title="Contract Expiry Timeline",
+                    xaxis_title="Days to Maturity",
+                    yaxis_title="Notional Amount ($)",
+                    height=400
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Summary statistics
+                st.markdown("### Summary Statistics")
+                col_a, col_b, col_c, col_d = st.columns(4)
+                with col_a:
+                    st.metric("Total Expiring Contracts", len(df_expiring))
+                with col_b:
+                    total_notional = df_expiring['notional_amount'].sum()
+                    st.metric("Total Notional at Risk", f"${total_notional:,.0f}")
+                with col_c:
+                    avg_days = df_expiring['days_remaining'].mean()
+                    st.metric("Average Days to Maturity", f"{avg_days:.0f}")
+                with col_d:
+                    avg_years = avg_days / 365
+                    st.metric("Average Years to Maturity", f"{avg_years:.2f}")
+                
+                # Breakdown by year
+                st.markdown("### Expiry Breakdown by Year")
+                df_expiring['expiry_year'] = (df_expiring['days_remaining'] / 365).apply(
+                    lambda x: f"Year {int(x)+1}" if x < 6 else "Year 6+"
+                )
+                
+                year_summary = df_expiring.groupby('expiry_year').agg({
+                    'contract_id': 'count',
+                    'notional_amount': 'sum'
+                }).reset_index()
+                year_summary.columns = ['Expiry Period', 'Contract Count', 'Total Notional']
+                
+                st.dataframe(year_summary, use_container_width=True, hide_index=True)
+                
+                # Bar chart by year
+                fig2 = go.Figure()
+                fig2.add_trace(go.Bar(
+                    x=year_summary['Expiry Period'],
+                    y=year_summary['Total Notional'],
+                    marker_color='lightblue',
+                    text=year_summary['Contract Count'],
+                    texttemplate='%{text} contracts',
+                    textposition='outside'
+                ))
+                fig2.update_layout(
+                    title="Notional Amount by Expiry Period",
+                    xaxis_title="Expiry Period",
+                    yaxis_title="Total Notional ($)",
+                    height=400
+                )
+                st.plotly_chart(fig2, use_container_width=True)
+                
+            else:
+                st.success(f"✅ No contracts expiring in the next {st.session_state['threshold_label']}")
+        else:
+            st.info("Select a time period and click 'Search Expiring Contracts'")
+
+# ============================================
+# PAGE 8: SECTOR ANALYSIS
+# ============================================
+elif page == "🏭 Sector Analysis":
+    st.header("Sector Risk Analysis")
+    
+    st.markdown("""
+    ### Market Sector Exposure
+    Analyze credit risk distribution and concentration across industry sectors.
+    """)
+    
+    # Sector analysis
+    sector_data = call_procedure('sector_risk_analysis')
+    
+    if sector_data:
+        df_sector = pd.DataFrame(sector_data)
+        
+        # Overview metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Sectors", len(df_sector))
+        with col2:
+            total_entities = df_sector['num_entities'].sum()
+            st.metric("Total Entities", int(total_entities))
+        with col3:
+            total_contracts = df_sector['num_contracts'].sum()
+            st.metric("Total Contracts", int(total_contracts))
+        with col4:
+            total_notional = df_sector['total_notional'].sum()
+            st.metric("Total Notional", f"${total_notional:,.0f}")
+        
+        st.markdown("---")
+        
+        # Data table
+        st.subheader("Sector Breakdown")
+        st.dataframe(df_sector, use_container_width=True, hide_index=True)
+        
+        # Visualizations
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Notional by sector
+            fig1 = go.Figure(data=[go.Pie(
+                labels=df_sector['sector'],
+                values=df_sector['total_notional'],
+                hole=0.4,
+                textinfo='label+percent'
+            )])
+            fig1.update_layout(title="Notional Amount by Sector", height=400)
+            st.plotly_chart(fig1, use_container_width=True)
+        
+        with col2:
+            # Spread comparison
+            fig2 = go.Figure()
+            fig2.add_trace(go.Bar(
+                x=df_sector['sector'],
+                y=df_sector['avg_spread'],
+                name='Avg Spread',
+                marker_color='blue'
+            ))
+            fig2.add_trace(go.Scatter(
+                x=df_sector['sector'],
+                y=df_sector['max_spread'],
+                name='Max Spread',
+                mode='markers',
+                marker=dict(size=12, color='red', symbol='diamond')
+            ))
+            fig2.update_layout(
+                title="Credit Spreads by Sector (bps)",
+                xaxis_title="Sector",
+                yaxis_title="Spread (basis points)",
+                height=400
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+        
+        # Risk heatmap
+        st.subheader("Sector Risk Heatmap")
+        df_sector['risk_level'] = pd.cut(
+            df_sector['avg_spread'], 
+            bins=[0, 150, 250, 400, 1000],
+            labels=['Low', 'Medium', 'High', 'Critical']
+        )
+        
+        fig3 = go.Figure(data=go.Heatmap(
+            z=[[df_sector['avg_spread'].values]],
+            x=df_sector['sector'],
+            y=['Credit Spread'],
+            colorscale='RdYlGn_r',
+            text=[[f"{s:.1f} bps" for s in df_sector['avg_spread']]],
+            texttemplate='%{text}',
+            showscale=True
+        ))
+        fig3.update_layout(
+            title="Sector Credit Risk Heatmap",
+            height=200,
+            xaxis_title="Sector",
+            yaxis_title=""
+        )
+        st.plotly_chart(fig3, use_container_width=True)
 
 # Footer
 st.sidebar.markdown("---")
