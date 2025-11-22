@@ -1,34 +1,62 @@
-# Virtual environment
+# --- Virtual environments ---
 cds_env/
 venv/
 env/
+.venv/
 
-# Python cache
+# --- Python cache / build artifacts ---
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
 *.so
 .Python
+build/
+dist/
+*.egg-info/
+.eggs/
 
-# IDE
+# Node / frontend stuff
+node_modules/
+npm-debug.log*
+yarn.lock
+pnpm-lock.yaml
+package-lock.json
+
+# --- Jupyter / notebooks (if any) ---
+.ipynb_checkpoints/
+
+# --- IDE / editor ---
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# OS
+# --- OS junk ---
 .DS_Store
 Thumbs.db
 
-# Sensitive data (NEVER commit passwords!)
-*.env
+# --- Logs & temp files ---
+*.log
+*.tmp
+*.bak
+
+# --- Sensitive config (NEVER commit secrets) ---
 .env
+.env.*
+*.env
 config.py
 secrets.py
 
-# Database
+# --- Local databases / sqlite files ---
 *.db
 *.sqlite
 *.sqlite3
 
-# Streamlit cache
+# --- Streamlit cache & config ---
 .streamlit/
+
+# --- Misc ---
+*.coverage
+.coverage*
+htmlcov/

@@ -56,10 +56,6 @@ BEGIN
 END$$
 DELIMITER ;
 
--- ===========================================
--- NEW TRIGGERS (3 MORE)
--- ===========================================
-
 -- Trigger 3: Log credit curve updates
 DELIMITER $$
 CREATE TRIGGER after_credit_curve_insert
@@ -286,10 +282,6 @@ BEGIN
     ORDER BY total_exposure DESC;
 END$$
 DELIMITER ;
-
--- ===========================================
--- NEW PROCEDURES (3 MORE)
--- ===========================================
 
 -- Procedure 3: Calculate portfolio VaR for all counterparties
 DELIMITER $$
